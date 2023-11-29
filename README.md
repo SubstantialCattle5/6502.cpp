@@ -2,10 +2,10 @@
 
 <!-- PROJECT LOGO -->
 
-  <h3 align="center">YOUR_TITLE</h3>
+  <h3 align="center">6502.cpp</h3>
 
   <p align="center">
-    YOUR_SHORT_DESCRIPTION
+    An emulator for the 6502 microprocessor written in C++.
     <br />
     <a href="https://github.com/csivitu/Template"><strong>Explore the docs »</strong></a>
     <br />
