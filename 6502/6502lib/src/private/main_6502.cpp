@@ -1,1 +1,1 @@
-#include "/home/nilay/projects/6502.cpp/6502/6502lib/src/public/main_6502.h"
+#include "main_6502.h"

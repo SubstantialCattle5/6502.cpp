@@ -1,6 +1,7 @@
 #pragma once
 #include <stdio.h>
 #include <stdlib.h>
+#include <cassert>
 
 // http://www.obelisk.me.uk/6502/
 
@@ -25,14 +26,14 @@ struct Mem
 	/** read 1 byte */
 	Byte operator[]( u32 Address ) const
 	{
-		// assert here Address is < MAX_MEM
+		assert( Address < MAX_MEM );
 		return Data[Address];
 	}
 
 	/** write 1 byte */
 	Byte& operator[]( u32 Address )
 	{
-		// assert here Address is < MAX_MEM
+		assert( Address < MAX_MEM );
 		return Data[Address];
 	}
 
@@ -42,9 +43,21 @@ struct Mem
 		u32 Address, 
 		u32& Cycles )
 	{
+		assert( Address < MAX_MEM - 1 );
 		Data[Address]		= Value & 0xFF;
 		Data[Address + 1]   = (Value >> 8);
 		Cycles -= 2;
+	}
+
+	/** read 2 bytes */
+	Word ReadWord( 
+		u32 Address, 
+		u32& Cycles ) const
+	{
+		assert( Address < MAX_MEM - 1 );
+		Word Value = Data[Address] | (Data[Address + 1] << 8);
+		Cycles -= 2;
+		return Value;
 	}
 };
 
@@ -66,7 +79,7 @@ struct CPU
 	void Reset( Mem& memory )
 	{
 		PC = 0xFFFC;
-		SP = 0x0100;
+		SP = 0xFF;  // Stack pointer starts at 0xFF (stack is at 0x0100-0x01FF)
 		C = Z = I = D = B = V = N = 0;
 		A = X = Y = 0;
 		memory.Initialise();
@@ -109,12 +122,62 @@ struct CPU
 		return Data;
 	}
 
+	// Stack operations - 6502 stack is at 0x0100-0x01FF
+	void PushByteToStack( 
+		u32& Cycles, 
+		Byte Value, 
+		Mem& memory )
+	{
+		memory[0x0100 | SP] = Value;
+		SP--;
+		Cycles--;
+	}
+
+	void PushWordToStack( 
+		u32& Cycles, 
+		Word Value, 
+		Mem& memory )
+	{
+		// Push high byte first
+		memory[0x0100 | SP] = (Value >> 8) & 0xFF;
+		SP--;
+		// Then push low byte
+		memory[0x0100 | SP] = Value & 0xFF;
+		SP--;
+		Cycles -= 2;
+	}
+
+	Byte PopByteFromStack( 
+		u32& Cycles, 
+		Mem& memory )
+	{
+		SP++;
+		Byte Value = memory[0x0100 | SP];
+		Cycles--;
+		return Value;
+	}
+
+	Word PopWordFromStack( 
+		u32& Cycles, 
+		Mem& memory )
+	{
+		// Pop low byte first (reverse of push order)
+		SP++;
+		Word Value = memory[0x0100 | SP];
+		SP++;
+		Value |= (memory[0x0100 | SP] << 8);
+		Cycles -= 2;
+		return Value;
+	}
+
 	// opcodes
 	static constexpr Byte
 		INS_LDA_IM = 0xA9,
 		INS_LDA_ZP = 0xA5,
 		INS_LDA_ZPX = 0xB5,
-		INS_JSR = 0x20;
+		INS_JSR = 0x20,
+		INS_RTS = 0x60,
+		INS_BRK = 0x00;
 
 	void LDASetStatus()
 	{
@@ -158,15 +221,28 @@ struct CPU
 			{
 				Word SubAddr = 
 					FetchWord( Cycles, memory );
-				memory.WriteWord( 
-					PC - 1, SP, Cycles );
-				SP += 2;				//(forgot to do this during the video, probably need a function to push onto the stack!)
+				// Push return address - 1 to stack (JSR pushes PC-1)
+				PushWordToStack( Cycles, PC - 1, memory );
 				PC = SubAddr;
 				Cycles--;
 			} break;
+			case INS_RTS:
+			{
+				// Pop return address from stack and add 1
+				Word ReturnAddr = PopWordFromStack( Cycles, memory );
+				PC = ReturnAddr + 1;
+				Cycles--;  // RTS takes 6 cycles total, but PopWordFromStack already takes 2
+			} break;
+			case INS_BRK:
+			{
+				// BRK instruction - stop execution
+				printf("BRK instruction executed at PC=0x%04X\n", PC-1);
+				return;
+			} break;
 			default:
 			{
-				printf("Instruction not handled %d", Ins );
+				printf("Instruction not handled 0x%02X at PC=0x%04X\n", Ins, PC-1 );
+				return;  // Stop execution on unhandled instruction
 			} break;
 			}
 		}
